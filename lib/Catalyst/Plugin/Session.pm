@@ -14,7 +14,7 @@ use List::Util qw/ max /;
 
 use namespace::clean -except => 'meta';
 
-our $VERSION = '0.39';
+our $VERSION = '0.40';
 $VERSION = eval $VERSION;
 
 my @session_data_accessors; # used in delete_session
@@ -34,6 +34,7 @@ __PACKAGE__->mk_accessors(
           _tried_loading_session_data
           _tried_loading_session_expires
           _tried_loading_flash_data
+          _needs_early_session_finalization
           /
 );
 
@@ -111,6 +112,7 @@ sub finalize_headers {
     # up to date. First call to session_expires will extend the expiry, subs
     # just return the previously extended value.
     $c->session_expires;
+    $c->finalize_session if $c->_needs_early_session_finalization;
 
     return $c->maybe::next::method(@_);
 }
@@ -121,7 +123,8 @@ sub finalize_body {
     # We have to finalize our session *before* $c->engine->finalize_xxx is called,
     # because we do not want to send the HTTP response before the session is stored/committed to
     # the session database (or whatever Session::Store you use).
-    $c->finalize_session;
+    $c->finalize_session unless $c->_needs_early_session_finalization;
+    $c->_clear_session_instance_data;
 
     return $c->maybe::next::method(@_);
 }
@@ -135,7 +138,6 @@ sub finalize_session {
     $c->_save_session;
     $c->_save_flash;
 
-    $c->_clear_session_instance_data;
 }
 
 sub _session_updated {
